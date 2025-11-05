@@ -252,4 +252,4 @@ _____________
 [7] J. E. Runeson and D. E. Manolopoulos __J. Chem. Phys. 150, 244102 (2019)__ 
 
 
-email: arkajitmandal@gmail.com
+email: mandal@tamu.edu
