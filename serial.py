@@ -114,7 +114,19 @@ if (method_[0] == 'sqc'):
             PiiFile.write(str(rho_sum[i,i,t].real / ( norm ) ) + "\t")
         PiiFile.write("\n")
     PiiFile.close()
-    
+
+elif hasattr(par, 'hvij') and par.hvij is not None:
+    # VSC model: write Tr(hvij @ rho) as the left-well population,
+    # followed by the diagonal populations
+    for t in range(rho_sum.shape[-1]):
+        PiiFile.write(f"{t * par.nskip * par.dtN} \t")
+        left_pop = np.trace(par.hvij @ rho_sum[:,:,t]).real / NTraj
+        PiiFile.write(str(left_pop) + "\t")
+        for i in range(NStates):
+            PiiFile.write(str(rho_sum[i,i,t].real / ( NTraj ) ) + "\t")
+        PiiFile.write("\n")
+    PiiFile.close()
+
 else:
     for t in range(rho_sum.shape[-1]):
         PiiFile.write(f"{t * par.nskip * par.dtN} \t")

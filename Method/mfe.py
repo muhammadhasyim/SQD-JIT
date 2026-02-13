@@ -8,10 +8,23 @@ class Bunch:
         self.__dict__.update(kwds)
 
 # Initialization of the electronic part
-def initElectronic(Nstates, initState = 0):
-    #global qF, qB, pF, pB, qF0, qB0, pF0, pB0
+def initElectronic(Nstates, initState=0, Upolaron=None):
+    """
+    Initialise electronic coefficients in the working basis.
+
+    Parameters
+    ----------
+    Nstates   : int
+    initState : int -- index in the diabatic basis
+    Upolaron  : (Nstates, Nstates) ndarray or None
+        Optional basis rotation (e.g. polaron / Mulliken-Hush transform).
+        When provided, the initial state vector is transformed via
+        c = Upolaron^dagger @ c before returning.
+    """
     c = np.zeros((Nstates), dtype='complex128')
     c[initState] = 1.0
+    if Upolaron is not None:
+        c = np.conj(Upolaron).T @ c
     return c
 
 #@jit(nopython=False)
@@ -113,7 +126,8 @@ def runTraj(parameters):
         vv  = VelVer
 
         # Call function to initialize mapping variables
-        dat.ci = initElectronic(NStates, initState) # np.array([0,1])
+        Upolaron = getattr(parameters, 'Upolaron', None)
+        dat.ci = initElectronic(NStates, initState, Upolaron)
 
         #----- Initial QM --------
         dat.Hij  = parameters.Hel(dat.R) + 0j

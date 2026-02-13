@@ -9,16 +9,32 @@ class Bunch:
     def __init__(self, **kwds):
         self.__dict__.update(kwds)
 
-def initElectronic(NStates, initState, Hij): 
+def initElectronic(NStates, initState, Hij, Upolaron=None): 
+    """
+    Initialise MASH mapping coefficients in the adiabatic basis.
+
+    Parameters
+    ----------
+    NStates   : int
+    initState : int -- index in the diabatic basis
+    Hij       : (NStates, NStates) -- electronic Hamiltonian at current R
+    Upolaron  : (NStates, NStates) ndarray or None
+        Optional basis rotation (e.g. polaron / Mulliken-Hush transform).
+        When provided, the coefficient vector is transformed via
+        c = Upolaron^dagger @ c before the adiabatic transformation.
+    """
     sumN = np.sum(np.array([1/n for n in range(1,NStates+1)]))
     alpha = (NStates - 1)/(sumN - 1)
     beta = (alpha - 1)/NStates
     
-    c = np.sqrt(beta/alpha) * np.ones((NStates), dtype = np.complex_)
+    c = np.sqrt(beta/alpha) * np.ones((NStates), dtype = np.complex128)
     c[initState] = np.sqrt((1+beta)/alpha)
     for n in range(NStates):
         uni = np.random.random()
         c[n] = c[n] * np.exp(1j*2*np.pi*uni)
+    # Optional polaron / Mulliken-Hush transform
+    if Upolaron is not None:
+        c = np.conj(Upolaron).T @ c
     E, U = np.linalg.eigh(Hij)
     c = np.conj(U).T @ c
     return c
@@ -199,7 +215,8 @@ def runTraj(parameters):
         
         
         # Call function to initialize mapping variables
-        dat.ci = initElectronic(NStates, initState, dat.Hij) # np.array([0,1])
+        Upolaron = getattr(parameters, 'Upolaron', None)
+        dat.ci = initElectronic(NStates, initState, dat.Hij, Upolaron)
         acst = np.argmax(np.abs(dat.ci))
         dat.E, dat.U = np.linalg.eigh(dat.Hij) 
         dat.F1 = Force(dat.dHij, dat.dH0, acst, dat.U) # Initial Force
