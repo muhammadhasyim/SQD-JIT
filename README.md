@@ -96,7 +96,7 @@ Method               = pldm-focused
 
 * Model : The right hand side of the first line, _tully2_, tells the code to look for tully2.py inside the folder "Model". If you name your model file as  modelName.py then you should write 'Model = modelName' (without the '.py' part). 
 * Method : Written as, method-methodOption. Select a quantum dynamics method. The available methods are :
-  - **mfe** : Mean-Field Ehrenfest Approach. Kind of worst approach you can think of.
+  - **mfe** : Mean-Field Ehrenfest Approach [8]. Kind of worst approach you can think of.
    - **pldm-focused** : Partial Linearized Density Matrix (PLDM) [1] with focused initial conditions. Should be similar to mfe. Maybe slightly better. 
    - **pldm-sampled** : Partial Linearized Density Matrix (PLDM) [1] with sampled initial conditions or the original PLDM approach. Most of the time works well, sometimes does not. Very good if your potentials are Hermonic (like Spin-Boson systems)
    - **spinpldm-all**: The Spin-Mapping PLDM [2] approach with full sampling. Often better than PLDM. Reliable but slighly slow. If your initial electronic state is a pure state |i⟩⟨i| (you could start from a super position state, but you have to hack into this code to do that) use spinpldm-half to get the same result but much faster (by half).
@@ -106,12 +106,12 @@ Method               = pldm-focused
    - **sqc-triangle**: The Symmetric Quasi-Classical Approach, with triangle window [4]. Better than sqc-square.   
    - **zpesqc-triangle**: The zero-point energy corrected Symmetric Quasi-Classical Approach [5], with triangle window. As good as spin-PLDM or better.  
    - **zpesqc-square**: The zero-point energy corrected Symmetric Quasi-Classical Approach [5], with square window. Slightly worse than zpesqc-triangle.
-   - **spinlsc**: Spin-LSC approach, sort of simpler version of Spin-PLDM. I think this is actually a great method. 
+   - **spinlsc**: Spin-LSC approach [13,14], sort of simpler version of Spin-PLDM. I think this is actually a great method. 
 
    - **nrpmd-n** : The non-adiabatic ring polymer molecular dynamics[6] framework for aims to captures nuclear quantum effects while predicting efficient short-time and reliable longer time
    dynamics. Reasonable results for electron/charge transfer dynamics. Here n represents the number of beads, i.e. nrpmd-5 means each nuclear degrees of freedom is described with 5 ring-polymer beads.  
 
-   - **mash** : Multistate Mapping Approach to Surface Hopping approach. [7] 
+   - **mash** : Multistate Mapping Approach to Surface Hopping approach. [7,17] 
 
 The output file containing population dynamics is 'method-methodOption-modelName.txt', for the above input file it would be: 
 
@@ -223,13 +223,75 @@ ${\hat{\rho}^W_N}({R, P}) = \frac{1}{\pi\hbar} \int_{-\infty}^{\infty} \langle {
 The $R, P$ is then sampled from $\hat{\rho}_N^{W}({R, P})$.
 
 _____________
-_to be continued_...
-<!--- 
 
-For example consider a 1D dimentional model system, called the Tully's Model II. It has two electronic states and one nuclear DOF. Thus we write the Hamiltonian with one set of  $\{R,P\}$. _to be continued_...
+## Methods
 
-[6] Braden, Mandal and Huo __J. Chem. Phys. 155, 084106__
--->
+All semiclassical methods implemented here propagate nuclei classically while treating electronic degrees of freedom through various mapping or mean-field strategies. The key distinction between methods lies in how they represent the electronic DOF and compute the nuclear force kernel $\Lambda_{ij}$. Below we summarize each method's key ideas and equations.
+
+### MFE (Mean-Field Ehrenfest) [8]
+
+The Ehrenfest method is the simplest mixed quantum-classical approach: nuclei evolve on a mean-field potential energy surface averaged over all electronic states, weighted by the electronic amplitudes. The electronic coefficients $c_i$ are propagated via the time-dependent Schrodinger equation $i\hbar \dot{c}_i = \sum_j H_{ij}^{el} c_j$. The nuclear force kernel is $\Lambda_{ij} = c_i^* c_j$, so the force on each nucleus is:
+
+$$F_k = -\nabla_k V_0 - \sum_{ij} \nabla_k V_{ij} \cdot c_i^* c_j$$
+
+While computationally cheap and straightforward, Ehrenfest dynamics does not satisfy detailed balance and can yield incorrect long-time populations because the nuclei never fully commit to a single electronic state.
+
+### PLDM (Partial Linearized Density Matrix) [1,11]
+
+PLDM uses the Meyer-Miller-Stock-Thoss (MMST) [9,10] classical mapping Hamiltonian to replace discrete electronic states with continuous harmonic oscillator variables $(q_i, p_i)$. It employs a forward-backward decomposition with two independent sets of mapping variables $(q_F, p_F)$ and $(q_B, p_B)$ that propagate the ket and bra sides of the density matrix, respectively. The reduced density matrix is estimated as:
+
+$$\rho_{ij}(t) \propto \left\langle \left(q_F^i(t) + i p_F^i(t)\right) \left(q_B^j(t) - i p_B^j(t)\right) \right\rangle$$
+
+The nuclear force kernel takes the symmetrized form $\Lambda_{ij} = \tfrac{1}{4}(q_F^i q_F^j + p_F^i p_F^j + q_B^i q_B^j + p_B^i p_B^j)$. With "focused" initial conditions, PLDM reduces approximately to Ehrenfest; with "sampled" initial conditions, it captures more quantum coherence effects and is particularly accurate for harmonic (e.g., spin-boson) models.
+
+### Spin-PLDM (Spin-Mapping PLDM) [2,12]
+
+Spin-PLDM replaces the MMST mapping with spin-mapping variables derived from the Stratonovich-Weyl transform of SU($N$) coherent states. The mapping variables are constrained to lie on a hypersphere, which eliminates the zero-point energy leakage problem that plagues MMST-based methods. The approach uses forward-backward complex mapping variables $z_F$ and $z_B$, and the key parameter is the spin-mapping zero-point energy:
+
+$$g_w = \frac{2}{N}\left(\sqrt{N+1} - 1\right)$$
+
+The population estimator takes the form $\hat{A}_{ij} \propto z_F^{i*} z_F^{j} - g_w \delta_{ij}$. Three variants are available: "all" (full forward-backward sampling), "half" (an efficient approximation valid for pure initial states), and "focused" (best for short-time dynamics).
+
+### Spin-LSC (Spin Linearized Semiclassical) [13,14]
+
+Spin-LSC is the fully linearized (single-trajectory) version of spin-mapping dynamics, using only a single set of forward mapping variables $z$ rather than the forward-backward pair used in spin-PLDM. It can be viewed as a spin-mapping generalization of the classical Wigner (linearized semiclassical) approach. The reduced density matrix is estimated as:
+
+$$\rho_{ij}(t) = \frac{1}{2}\left\langle z^{i*}(t)\, z^{j}(t) - g_w\, \delta_{ij} \right\rangle$$
+
+Despite its simplicity compared to spin-PLDM, spin-LSC provides remarkably accurate results for many condensed-phase models and is computationally efficient since it requires only half the mapping degrees of freedom.
+
+### SQC (Symmetric Quasi-Classical) [3,4]
+
+The SQC approach, developed by Cotton and Miller, uses the MMST mapping Hamiltonian with symmetrical windowing functions applied to the electronic action variables at both the initial and final times. For each electronic state, the action variable is defined as $n_i = \frac{1}{2}(q_i^2 + p_i^2) - \gamma$, where $\gamma$ is a zero-point energy parameter. The population of state $i$ at time $t$ is assigned as 1 if $n_i(t)$ falls within a specified window and 0 otherwise. Two window functions are implemented:
+
+$$\text{Square: } \gamma = \frac{\sqrt{3}-1}{2}, \qquad \text{Triangle: } \gamma = \frac{1}{3}$$
+
+The triangle window generally outperforms the square window, especially for systems with many electronic states.
+
+### ZPE-SQC (Zero-Point Energy Corrected SQC) [5]
+
+ZPE-SQC addresses a key limitation of standard SQC by adjusting the zero-point energy parameter $\gamma$ on a per-trajectory basis according to the instantaneous electronic state, preventing spurious zero-point energy flow between electronic states. Instead of using a fixed $\gamma$ for all states, the correction defines a trajectory-specific parameter:
+
+$$\gamma_0^{(i)} = n_i(0) - \delta_{i,\,\mathrm{init}}$$
+
+where $n_i(0)$ is the initial action variable for state $i$ and $\delta_{i,\mathrm{init}}$ is 1 for the initially occupied state and 0 otherwise. This ensures the initial nuclear force matches the correct quantum electronic state. ZPE-SQC achieves accuracy comparable to or better than spin-PLDM for many benchmark models.
+
+### N-RPMD (Nonadiabatic Ring-Polymer Molecular Dynamics) [6,15,16]
+
+N-RPMD combines the ring-polymer path-integral representation of nuclear degrees of freedom with MMST mapping variables for the electronic states, enabling the simultaneous capture of nuclear quantum effects (tunneling, zero-point energy) and nonadiabatic transitions. Each nuclear DOF is represented by $n_b$ ring-polymer beads connected by harmonic springs, and each bead carries its own set of electronic mapping variables. The ring-polymer spring potential is:
+
+$$V_{\mathrm{RP}} = \sum_{b=1}^{n_b} \frac{1}{2} M_k \omega_{n_b}^2 \left(R_k^{(b)} - R_k^{(b+1)}\right)^2, \qquad \omega_{n_b} = \frac{n_b}{\beta \hbar}$$
+
+The electronic population is obtained by averaging the mapping-variable estimator over all beads: $\rho_{ij} = \frac{1}{n_b}\sum_{b} \frac{1}{2}(q_i^{(b)} q_j^{(b)} + p_i^{(b)} p_j^{(b)} - \delta_{ij})$. Normal-mode transformations are used to efficiently propagate the free ring-polymer dynamics.
+
+### MASH (Mapping Approach to Surface Hopping) [7,17]
+
+MASH is derived rigorously from the quantum-classical Liouville equation and propagates nuclei on a single active adiabatic potential energy surface, with deterministic (not stochastic) hops between surfaces. The active state at any time is determined by the electronic coefficient with the largest amplitude, $a = \arg\max_i |c_i|^2$, and the nuclear force is simply the gradient of the active-state adiabatic potential. The population estimator combines a projection-like term with a uniform correction:
+
+$$\hat{\rho}_{ij} = \alpha \, c_i \, c_j^* + \beta \, \delta_{ij}, \qquad \alpha = \frac{N-1}{\displaystyle\sum_{n=1}^{N} \frac{1}{n} - 1}, \qquad \beta = \frac{\alpha - 1}{N}$$
+
+Upon a surface hop, the nuclear momentum is rescaled along the nonadiabatic coupling direction to conserve total energy. MASH is guaranteed to satisfy detailed balance and correctly recovers Marcus theory rate constants without requiring decoherence corrections.
+
 ## Authors
 * Arkajit Mandal
 * Braden Weight
@@ -243,13 +305,23 @@ For example consider a 1D dimentional model system, called the Tully's Model II.
 
 ## References
 _____________
-[1] Huo and Coker __J. Chem. Phys. 135, 201101 (2011)__\
-[2] Mannouch and Richardson __J. Chem. Phys. 153, 194109 (2020)__\
-[3] Cotton and Miller __J. Chem. Phys. 139, 234112 (2013)__\
-[4] Cotton and Miller __J. Chem. Phys. 145, 144108 (2016)__\
-[5] Cotton and Miller __J. Chem. Phys. 150, 194110 (2019)__\
-[6] S. N. Chowdhury and P.Huo __J. Chem. Phys. 147, 214109 (2017)__\
-[7] J. E. Runeson and D. E. Manolopoulos __J. Chem. Phys. 150, 244102 (2019)__ 
+[1] P. Huo and D. F. Coker, __J. Chem. Phys. 135, 201101 (2011)__\
+[2] J. R. Mannouch and J. O. Richardson, __J. Chem. Phys. 153, 194109 (2020)__\
+[3] S. J. Cotton and W. H. Miller, __J. Chem. Phys. 139, 234112 (2013)__\
+[4] S. J. Cotton and W. H. Miller, __J. Chem. Phys. 145, 144108 (2016)__\
+[5] S. J. Cotton and W. H. Miller, __J. Chem. Phys. 150, 194110 (2019)__\
+[6] S. N. Chowdhury and P. Huo, __J. Chem. Phys. 147, 214109 (2017)__\
+[7] J. R. Mannouch and J. O. Richardson, __J. Chem. Phys. 158, 104111 (2023)__\
+[8] J. C. Tully, __J. Chem. Phys. 93, 1061 (1990)__\
+[9] H.-D. Meyer and W. H. Miller, __J. Chem. Phys. 70, 3214 (1979)__\
+[10] G. Stock and M. Thoss, __Phys. Rev. Lett. 78, 578 (1997)__\
+[11] P. Huo and D. F. Coker, __J. Chem. Phys. 137, 22A535 (2012)__\
+[12] J. R. Mannouch and J. O. Richardson, __J. Chem. Phys. 153, 194110 (2020)__\
+[13] J. E. Runeson and J. O. Richardson, __J. Chem. Phys. 151, 044119 (2019)__\
+[14] J. E. Runeson and J. O. Richardson, __J. Chem. Phys. 152, 084110 (2020)__\
+[15] N. Ananth, __J. Chem. Phys. 139, 124102 (2013)__\
+[16] J. O. Richardson and M. Thoss, __J. Chem. Phys. 139, 031102 (2013)__\
+[17] J. E. Runeson and D. E. Manolopoulos, __J. Chem. Phys. 159, 094115 (2023)__
 
 
 email: mandal@tamu.edu
