@@ -29,7 +29,6 @@ from Method import zpesqc as orig_zpesqc
 from Method import spinlsc as orig_spinlsc
 from Method import spinpldm as orig_spinpldm
 from Method import mash as orig_mash
-from Method import fsmash as orig_fsmash
 from Method import unsmash as orig_unsmash
 
 from ModelJIT.spinBoson import hel, dhel, dhel0, get_model_params
@@ -40,7 +39,6 @@ from MethodJIT.zpesqc import make_zpesqc_kernel
 from MethodJIT.spinlsc import make_spinlsc_kernel
 from MethodJIT.spinpldm import make_spinpldm_kernel
 from MethodJIT.mash import make_mash_kernel
-from MethodJIT.fsmash import make_fsmash_kernel
 from MethodJIT.unsmash import make_unsmash_kernel
 
 # --- Parameters (LONG run) ---
@@ -241,47 +239,6 @@ def run_jit_mash():
 
 
 # ===================================================================
-#  FS-MASH  (stochastic hop -- uses random.random() for phases,
-#            np.random.uniform() for Tully decisions)
-# ===================================================================
-
-def run_orig_fsmash():
-    pyrandom.seed(SEED)
-    par = make_orig_params_long()
-    return orig_fsmash.runTraj(par)
-
-def run_jit_fsmash():
-    kernel = make_fsmash_kernel(hel, dhel, dhel0)
-    # Phase randoms come from Python random (matching original's
-    # random.random() calls in initElectronic).
-    # Nuclear ICs and hop randoms come from numpy.
-    pyrandom.seed(SEED)
-    np.random.seed(SEED)
-    R_rand = np.empty((NTraj, ndof))
-    P_rand = np.empty((NTraj, ndof))
-    phase_rand = np.empty((NTraj, NStates))
-    # Pre-generate matching original consumption order:
-    # For each traj: R[d]/P[d] interleaved (numpy), then NStates phases (python random)
-    for itraj in range(NTraj):
-        for d in range(ndof):
-            R_rand[itraj, d] = np.random.normal()
-            P_rand[itraj, d] = np.random.normal()
-        for s in range(NStates):
-            phase_rand[itraj, s] = pyrandom.random()
-    # Hop randoms: pre-generate a pool per trajectory.
-    # The original draws np.random.uniform() during simulation,
-    # but those draws shift the numpy RNG for subsequent trajectories.
-    # For bitwise match of the first few trajectories (before any hop),
-    # we consume from the same numpy RNG after all ICs.
-    hop_rand = np.random.uniform(0, 1, size=(NTraj, NSTEPS_LONG))
-    return kernel(NTraj, NSTEPS_LONG, NStates, NSKIP,
-                  DTN, mp['M_mass'], mp['initState'],
-                  R_rand, P_rand, mp['sigR'], mp['sigP'],
-                  phase_rand, hop_rand,
-                  mp['c'], mp['epsilon'], mp['Delta'], mp['omega'])
-
-
-# ===================================================================
 #  unSMASH  (Bloch spheres, deterministic hops)
 # ===================================================================
 
@@ -322,7 +279,6 @@ METHODS = [
     ('spinlsc',  run_orig_spinlsc,  run_jit_spinlsc),
     ('spinpldm', run_orig_spinpldm, run_jit_spinpldm),
     ('mash',     run_orig_mash,     run_jit_mash),
-    ('fsmash',   run_orig_fsmash,   run_jit_fsmash),
     ('unsmash',  run_orig_unsmash,  run_jit_unsmash),
 ]
 
@@ -389,7 +345,7 @@ def main():
     ax1.set_yscale('log')
     ax1.grid(True, alpha=0.3)
 
-    hopping = ['mash', 'fsmash', 'unsmash']
+    hopping = ['mash', 'unsmash']
     colors_hop = ['tab:red', 'tab:pink', 'tab:olive']
     for name, col in zip(hopping, colors_hop):
         if name in all_residuals:
@@ -410,7 +366,7 @@ def main():
     # ==========================================
     # FIGURE 2: Population dynamics + residual per method
     # ==========================================
-    all_names = continuous + ['mash', 'fsmash', 'unsmash']
+    all_names = continuous + ['mash', 'unsmash']
     n_methods = len(all_names)
 
     fig2, axes = plt.subplots(n_methods, 2, figsize=(16, 3.5 * n_methods),
