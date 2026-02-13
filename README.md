@@ -1,5 +1,5 @@
 # Code for Performing Semi-Classical Quantum Dynamics
-The methods that are implimented in this code are : PLDM (Parital Linearized Density Matrix), spin-PLDM, MFE (Mean-Field Ehrenfest), various SQC (Symmetric Quasi-Classical Approach) and N-RPMD (Nonadiabatic Ring-Polymer Molecular Dynamics). The present code works for slurm based High-Performance Computing Cluster (HPCC), HTcondor based High-Throughput Computing (HTC) as well as on personal computers.  
+The methods that are implemented in this code are: PLDM (Partial Linearized Density Matrix), spin-PLDM, MFE (Mean-Field Ehrenfest), various SQC (Symmetric Quasi-Classical Approach), N-RPMD (Nonadiabatic Ring-Polymer Molecular Dynamics), MASH (Mapping Approach to Surface Hopping), and unSMASH (Uncoupled Spheres Multi-State MASH). The present code works for slurm based High-Performance Computing Cluster (HPCC), HTcondor based High-Throughput Computing (HTC) as well as on personal computers.  
 
 # Usage  
 ### Step 1
@@ -111,7 +111,8 @@ Method               = pldm-focused
    - **nrpmd-n** : The non-adiabatic ring polymer molecular dynamics[6] framework for aims to captures nuclear quantum effects while predicting efficient short-time and reliable longer time
    dynamics. Reasonable results for electron/charge transfer dynamics. Here n represents the number of beads, i.e. nrpmd-5 means each nuclear degrees of freedom is described with 5 ring-polymer beads.  
 
-   - **mash** : Multistate Mapping Approach to Surface Hopping approach. [7,17] 
+   - **mash** : Multistate Mapping Approach to Surface Hopping approach. [7,17]
+   - **unsmash** : Uncoupled Spheres Multi-State MASH (unSMASH) [18] — size-consistent multi-state MASH that recovers the original two-state MASH; JIT implementation in `MethodJIT/`. 
 
 The output file containing population dynamics is 'method-methodOption-modelName.txt', for the above input file it would be: 
 
@@ -292,6 +293,40 @@ $$\hat{\rho}_{ij} = \alpha \, c_i \, c_j^* + \beta \, \delta_{ij}, \qquad \alpha
 
 Upon a surface hop, the nuclear momentum is rescaled along the nonadiabatic coupling direction to conserve total energy. MASH is guaranteed to satisfy detailed balance and correctly recovers Marcus theory rate constants without requiring decoherence corrections.
 
+### unSMASH (Uncoupled Spheres Multi-State MASH) [18]
+
+unSMASH is a **size-consistent** multi-state generalization of MASH that rigorously recovers the original two-state MASH when only two states are coupled. Unlike other multi-state mapping approaches, it does not introduce spurious transitions between uncoupled states and inherits MASH’s connection to the quantum–classical Liouville equation (QCLE) when at most two states are coupled at a given time.
+
+**Electronic representation.** For $N$ adiabatic states, the active state is denoted $n$. For each other state $b \neq n$, unSMASH introduces one effective **Bloch sphere** $\mathbf{S}^{(n,b)} = (S_x^{(n,b)}, S_y^{(n,b)}, S_z^{(n,b)})$ on the unit sphere, with the constraint that all $N-1$ spheres lie on the **upper hemisphere**: $S_z^{(n,b)} > 0$. Thus the electronic variables are $N-1$ uncoupled spheres, one per pair $(n,b)$.
+
+**Dynamics between hops.** The nuclear force is the gradient of the active adiabatic potential:
+
+$$F_k = -\frac{\partial V_n}{\partial q_k}$$
+
+Each sphere $\mathbf{S}^{(n,b)}$ evolves as if the two states $n$ and $b$ formed an isolated two-level system (hence “uncoupled spheres”):
+
+$$\hbar \, \dot{\mathbf{S}}^{(n,b)} = \begin{pmatrix} 0 \\ \sum_k \frac{2\hbar}{m_k} d_k^{(n,b)}(\mathbf{q})\, p_k \\ V_n(\mathbf{q}) - V_b(\mathbf{q}) \end{pmatrix} \times \mathbf{S}^{(n,b)}$$
+
+where $d_k^{(n,b)}$ is the nonadiabatic coupling vector (NACV) between states $n$ and $b$. No coupling between different spheres is included, which is what ensures size consistency.
+
+**Hops.** A hop from active state \(n\) to state \(b\) occurs when \(S_z^{(n,b)}(t_{\mathrm{hop}}) = 0\). The hop is **accepted** only if the kinetic energy along the mass-weighted NACV exceeds the adiabatic energy gap:
+
+$$E_{\mathrm{kin}}^{(d)} = \frac{1}{2} \frac{(\tilde{\mathbf{p}} \cdot \tilde{\mathbf{d}})^2}{\tilde{\mathbf{d}} \cdot \tilde{\mathbf{d}}} > V_b - V_n$$
+
+with $\tilde{p}_k = p_k/\sqrt{m_k}$ and $\tilde{d}_k = d_k^{(n,b)}/\sqrt{m_k}$. If there is insufficient energy (frustrated hop), the mass-weighted momentum component along $\tilde{\mathbf{d}}$ is **reversed**. If the hop is accepted, that component is **rescaled** so that total energy is conserved. After a successful hop from $n_{\mathrm{i}}$ to $n_{\mathrm{f}}$, the spheres are **relabelled**: the sphere that was $\mathbf{S}^{(n_{\mathrm{i}}, n_{\mathrm{f}})}$ becomes $\mathbf{S}^{(n_{\mathrm{f}}, n_{\mathrm{i}})} = (S_x,\, -S_y,\, -S_z)$ in the new indexing, and all other spheres are reindexed so that the new active state has $N-1$ upper-hemisphere spheres.
+
+**Observables and initial conditions.** For **diabatic** initial conditions (e.g. initial population on diabatic state \(|j\rangle\)), the time-dependent diabatic population is given by an ensemble average with initial weights \(g_j^{\mathrm{P}}\) and \(g_j^{\mathrm{C}}\) (Appendix A of the paper). The diagonal (population) contribution uses
+
+$$g_j^{\mathrm{P}} = \rho_{\mathrm{P}} \, |\langle j | n \rangle|^2 + \sum_{a \neq n} 2\,\mathrm{Re}\bigl(\langle j | n \rangle \langle a | j \rangle\bigr) S_x^{(n,a)} - 2\,\mathrm{Im}\bigl(\langle j | n \rangle \langle a | j \rangle\bigr) S_y^{(n,a)}$$
+
+with $\rho_{\mathrm{P}}(\mathbf{S}) = \prod_{\mu \neq n} 2|S_z^{(n,\mu)}|$. The coherence contribution uses $g_j^{\mathrm{C}}$ (same structure with factors 2 and 3 instead of $\rho_{\mathrm{P}}$ and 2). The diabatic density matrix at time $t$ is then
+
+$$\langle P_j^{\mathrm{dia}}(t) \rangle \approx \Bigl\langle N \sum_a \bigl|\langle j | a_{\mathbf{q}(t)} \rangle\bigr|^2 \, g_j^{\mathrm{P}} \, P_a(\mathbf{S}(t)) \Bigr\rangle + \Bigl\langle N \sum_{a \neq b} \langle j | a_{\mathbf{q}(t)} \rangle \langle b_{\mathbf{q}(t)} | j \rangle \, g_j^{\mathrm{C}} \, \sigma_{ab}(\mathbf{S}(t)) \Bigr\rangle$$
+
+where $P_a(\mathbf{S}(t)) = \delta_{a,\,n(t)}$ is the adiabatic population indicator, $\sigma_{ab}$ is the coherence observable involving $S_x^{(a,b)} - \mathrm{i} S_y^{(a,b)}$, and the expectation is over trajectories sampled with nuclei from the Wigner distribution and **uniform** sampling of the initial active state and of the Bloch spheres on the upper hemisphere ($S_z \sim \mathcal{U}[0,1]$, $\phi \sim \mathcal{U}[0,2\pi]$).
+
+**Implementation.** The JIT-compiled implementation lives in `MethodJIT/unsmash.py` and mirrors the structure of `MethodJIT/mash.py`. For $N=2$ (e.g. spin-boson), unSMASH and MASH agree in the limit of many trajectories; for $N>2$, unSMASH remains size-consistent and is well suited to photochemical relaxation and multi-state avoided crossings.
+
 ## Authors
 * Arkajit Mandal
 * Braden Weight
@@ -321,7 +356,8 @@ _____________
 [14] J. E. Runeson and J. O. Richardson, __J. Chem. Phys. 152, 084110 (2020)__\
 [15] N. Ananth, __J. Chem. Phys. 139, 124102 (2013)__\
 [16] J. O. Richardson and M. Thoss, __J. Chem. Phys. 139, 031102 (2013)__\
-[17] J. E. Runeson and D. E. Manolopoulos, __J. Chem. Phys. 159, 094115 (2023)__
+[17] J. E. Runeson and D. E. Manolopoulos, __J. Chem. Phys. 159, 094115 (2023)__\
+[18] J. E. Lawrence, J. R. Mannouch and J. O. Richardson, __Phys. Rev. A__ (2024) — *A Size-Consistent Multi-State Mapping Approach to Surface Hopping* (unSMASH)
 
 
 email: mandal@tamu.edu
